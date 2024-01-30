@@ -5,3 +5,6 @@ I am working on this with my friend Mahmoud AlAzhary!
   Big-O notation time complexity:
   - Best = Average = O(n log(n))
   - Worst = O(n²)
+## BFS shortest path finder
+  Time complexity of O(n*m)
+  [+] Maybe extended it to a 2D graphical game with sockets to have 2 players...
