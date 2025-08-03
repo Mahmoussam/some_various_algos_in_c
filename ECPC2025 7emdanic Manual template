@@ -1713,10 +1713,9 @@ struct Circle {
     Circle(pt _o, ld _r) : o(_o), r(_r) {}
 };
 
-// Check if point p lies inside or on circle C
-// Idea: compare squared distance to squared radius for stability
+// Check if point p lies inside or on circle C [percision errors]
 bool contains(const Circle& C, const Point& p) {
-    return sgn(dist2(C.o, p) - C.r*C.r) <= 0;
+    return sgn(dist(C.o, p) - C.r) <= 0;
 }
 
 // Intersection of circle C with line through points A -> B
@@ -3427,6 +3426,202 @@ struct GaussMod {
     }
 };
 // .......
+u128 int_sqrt (u128 x) {
+  u128 ans = 0;
+  for (u128 k = 1LL << 37; k != 0; k /= 2) {
+    if ((ans + k) * (ans + k) <= x) {
+      ans += k;
+    }
+  }
+  return ans;
+}
+//Centroid shit..
+const int MAXN = 100000;  // adjust as needed
+vector<int> adj[MAXN];    // adjacency list of the tree
+bool removed[MAXN];       // marker for removed centroids
+int sz[MAXN];             // subtree sizes
+int centroid_parent[MAXN]; // parent in the centroid tree
+
+// Compute subtree sizes of node u (excluding removed nodes)
+int get_size(int u, int p) {
+    sz[u] = 1;
+    for (int v : adj[u]) {
+        if (v != p && !removed[v]) {
+            sz[u] += get_size(v, u);
+        }
+    }
+    return sz[u];
+}
+
+// Find centroid of the subtree rooted at u (size = n)
+int get_centroid(int u, int p, int n) {
+    for (int v : adj[u]) {
+        if (v != p && !removed[v]) {
+            if (sz[v] * 2 > n)
+                return get_centroid(v, u, n);
+        }
+    }
+    return u;
+}
+
+// Decompose tree and build centroid tree
+// u: current root of subtree, p: parent in centroid tree
+void decompose(int u, int p) {
+    int n = get_size(u, -1);
+    int centroid = get_centroid(u, -1, n);
+    
+    // Mark centroid as removed
+    removed[centroid] = true;
+    
+    // Set parent of centroid in the centroid tree
+    centroid_parent[centroid] = (p == -1 ? centroid : p);
+    
+    // Recurse on subtrees
+    for (int v : adj[centroid]) {
+        if (!removed[v]) {
+            decompose(v, centroid);
+        }
+    }
+}
+// Minimum enclosing circle: 
+
+typedef double ld;
+struct P { ld x, y; };
+struct C { P c; ld r; };
+
+ld dist(const P &a, const P &b) {
+    ld dx = a.x - b.x, dy = a.y - b.y;
+    return sqrt(dx*dx + dy*dy);
+}
+
+bool in_circle(const C &c, const P &p) {
+    return dist(c.c, p) <= c.r + 1e-9;
+}
+
+C circle_from_2(const P &a, const P &b) {
+    P o{ (a.x + b.x)/2, (a.y + b.y)/2 };
+    return { o, dist(a,b)/2 };
+}
+
+C circle_from_3(const P &a, const P &b, const P &c) {
+    ld A = b.x - a.x, B = b.y - a.y;
+    ld Cc = c.x - a.x, D = c.y - a.y;
+    ld E = A*(a.x + b.x) + B*(a.y + b.y);
+    ld F = Cc*(a.x + c.x) + D*(a.y + c.y);
+    ld G = 2*(A*(c.y - b.y) - B*(c.x - b.x));
+    if (fabs(G) < 1e-9) return { {0,0}, -1 };
+    P o{ (D*E - B*F)/G, (A*F - Cc*E)/G };
+    return { o, dist(o, a) };
+}
+
+C mec(vector<P> &pts) {
+    random_device rd;
+    mt19937 rng(rd());
+    shuffle(pts.begin(), pts.end(), rng);
+    C c{ {0,0}, -1 };
+    int n = pts.size();
+    for (int i = 0; i < n; i++) {
+        if (c.r < 0 || !in_circle(c, pts[i])) {
+            c = { pts[i], 0 };
+            for (int j = 0; j < i; j++) {
+                if (!in_circle(c, pts[j])) {
+                    c = circle_from_2(pts[i], pts[j]);
+                    for (int k = 0; k < j; k++) {
+                        if (!in_circle(c, pts[k])) {
+                            c = circle_from_3(pts[i], pts[j], pts[k]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return c;
+}
+//Persistent segment tree
+
+typedef long long ll;
+const int MAXN = 100000;          // max array size
+const int MAXNODE = MAXN * 20;    // pool size: approx n * log(n) * versions
+
+struct Node {
+    ll sum;
+    Node *l, *r;
+    Node(ll _sum = 0, Node* _l = nullptr, Node* _r = nullptr) : sum(_sum), l(_l), r(_r) {}
+};
+
+Node pool[MAXNODE];
+int poolPtr = 0;
+
+// allocate and return a new node
+Node* newNode(ll sum = 0, Node* l = nullptr, Node* r = nullptr) {
+    pool[poolPtr] = Node(sum, l, r);
+    return &pool[poolPtr++];
+}
+
+// build a tree for range [L,R], initially zeros
+Node* build(int L, int R) {
+    Node* node = newNode();
+    if (L == R) return node;
+    int M = (L + R) >> 1;
+    node->l = build(L, M);
+    node->r = build(M+1, R);
+    return node;
+}
+
+// point update: at position pos add delta, return new root based on prev
+Node* update(Node* prev, int L, int R, int pos, ll delta) {
+    if (pos < L || pos > R) return prev;
+    Node* node = newNode(prev->sum, prev->l, prev->r);
+    if (L == R) {
+        node->sum += delta;
+        return node;
+    }
+    int M = (L + R) >> 1;
+    if (pos <= M) node->l = update(prev->l, L, M, pos, delta);
+    else           node->r = update(prev->r, M+1, R, pos, delta);
+    node->sum = node->l->sum + node->r->sum;
+    return node;
+}
+
+// query sum in [i,j] on version rooted at rt
+ll query(Node* rt, int L, int R, int i, int j) {
+    if (!rt || j < L || i > R) return 0;
+    if (i <= L && R <= j) return rt->sum;
+    int M = (L + R) >> 1;
+    return query(rt->l, L, M, i, j) + query(rt->r, M+1, R, i, j);
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int n, Q;
+    cin >> n >> Q;
+    vector<ll> a(n+1);
+    for (int i = 1; i <= n; i++) cin >> a[i];
+
+    vector<Node*> version(Q+1);
+    version[0] = build(1, n);
+    for (int i = 1; i <= n; i++)
+        version[0] = update(version[0], 1, n, i, a[i]);
+
+    int curVer = 0;
+    while (Q--) {
+        int type;
+        cin >> type;
+        if (type == 1) {
+            int idx; ll delta;
+            cin >> idx >> delta;
+            version[++curVer] = update(version[curVer-1], 1, n, idx, delta);
+        } else {
+            int v, l, r;
+            cin >> v >> l >> r;
+            cout << query(version[v], 1, n, l, r) << '\n';
+        }
+    }
+    return 0;
+}
+
 // overflow checks in runtime
 g++ -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined mano.cpp -o mano
 //Stress testing !!
