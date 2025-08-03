@@ -1,0 +1,2464 @@
+//FFT
+using cd = complex<double>;
+const double PI = acos(-1);
+
+void fft(vector<cd> & a, bool invert) {
+    int n = a.size();
+
+    for (int i = 1, j = 0; i < n; i++) {
+        int bit = n >> 1;
+        for (; j & bit; bit >>= 1)
+            j ^= bit;
+        j ^= bit;
+
+        if (i < j)
+            swap(a[i], a[j]);
+    }
+
+    for (int len = 2; len <= n; len <<= 1) {
+        double ang = 2 * PI / len * (invert ? -1 : 1);
+        cd wlen(cos(ang), sin(ang));
+        for (int i = 0; i < n; i += len) {
+            cd w(1);
+            for (int j = 0; j < len / 2; j++) {
+                cd u = a[i+j], v = a[i+j+len/2] * w;
+                a[i+j] = u + v;
+                a[i+j+len/2] = u - v;
+                w *= wlen;
+            }
+        }
+    }
+
+    if (invert) {
+        for (cd & x : a)
+            x /= n;
+    }
+}
+
+vector<int> multiply(vector<int> const& a, vector<int> const& b) {
+    vector<cd> fa(a.begin(), a.end()), fb(b.begin(), b.end());
+    int n = 1;
+    while (n < (int)a.size() + b.size())
+        n <<= 1;
+    fa.resize(n);
+    fb.resize(n);
+
+    fft(fa, false);
+    fft(fb, false);
+    for (int i = 0; i < n; i++)
+        fa[i] *= fb[i];
+    fft(fa, true);
+
+    vector<int> result(n);
+    for (int i = 0; i < n; i++)
+        result[i] = round(fa[i].real());
+    return result;
+}
+
+vector<int> poly_pow(vector<int> poly, int p, int limit = 1e9) {
+    vector<int> ans{1};
+    while (p) {
+        if(p&1) ans = conv(ans, poly);
+        poly = conv(poly, poly);
+        ans.resize(limit + 1);
+        poly.resize(limit + 1);
+        p >>= 1;
+    }
+    return ans;
+}
+/*
+*   Using Taylor Polynomial Shift + FFT/NTT with mod ..
+*/
+vector<int> poly_shift(const vector<int> &a , ll k){
+  int N = a.size();
+  vector<int> C(N , 0) , G(N + 1 , 0);
+  ll k_pow = 1;
+  //build C and G
+  for(int i = 0;i < N;i++){
+      C[i] = mult(a[i] , FACT[i]);
+      G[N - i] = mult(k_pow , invFACT[i]);
+      k_pow *= k;
+      k_pow %= mod;
+      if(k_pow < 0)k_pow += mod;
+  }
+  //convolution under mod
+  auto cres = conv(C , G);
+  vector<int>res(N);
+  for(int i = 0;i < N;i++){//scaling
+      res[i] = mult(cres[i + N] , invFACT[i]);
+  }
+  return res;
+}
+//FFT MOD
+#define vi vector<int>
+#define rep(aa, bb, cc) for(int aa = bb; aa < cc;aa++)
+#define sz(a) (int)a.size()
+typedef complex<double> C;
+typedef vector<double> vd;
+void fft(vector<C>& a) {
+    int n = sz(a), L = 31 - __builtin_clz(n);
+    static vector<complex<long double>> R(2, 1);
+    static vector<C> rt(2, 1);  // (^ 10% faster if double)
+    for (static int k = 2; k < n; k *= 2) {
+        R.resize(n); rt.resize(n);
+        auto x = polar(1.0L, acos(-1.0L) / k);
+        rep(i,k,2*k) rt[i] = R[i] = i&1 ? R[i/2] * x : R[i/2];
+    }
+    vi rev(n);
+    rep(i,0,n) rev[i] = (rev[i / 2] | (i & 1) << L) / 2;
+    rep(i,0,n) if (i < rev[i]) swap(a[i], a[rev[i]]);
+    for (int k = 1; k < n; k *= 2)
+        for (int i = 0; i < n; i += 2 * k) rep(j,0,k) {
+                // C z = rt[j+k] * a[i+j+k]; // (25% faster if hand-rolled)  /// include-line
+                auto x = (double *)&rt[j+k], y = (double *)&a[i+j+k];        /// exclude-line
+                C z(x[0]*y[0] - x[1]*y[1], x[0]*y[1] + x[1]*y[0]);           /// exclude-line
+                a[i + j + k] = a[i + j] - z;
+                a[i + j] += z;
+            }
+}
+typedef vector<ll> vl;
+template<int M> vl convMod(const vl &a, const vl &b) {
+	if (a.empty() || b.empty()) return {};
+	vl res(sz(a) + sz(b) - 1);
+	int B=32-__builtin_clz(sz(res)), n=1<<B, cut=(int)(sqrt(M));
+	vector<C> L(n), R(n), outs(n), outl(n);
+	rep(i,0,sz(a)) L[i] = C((int)a[i] / cut, (int)a[i] % cut);
+	rep(i,0,sz(b)) R[i] = C((int)b[i] / cut, (int)b[i] % cut);
+	fft(L), fft(R);
+	rep(i,0,n) {
+		int j = -i & (n - 1);
+		outl[j] = (L[i] + conj(L[j])) * R[i] / (2.0 * n);
+		outs[j] = (L[i] - conj(L[j])) * R[i] / (2.0 * n) / 1i;
+	}
+	fft(outl), fft(outs);
+	rep(i,0,sz(res)) {
+		ll av = (ll)(real(outl[i])+.5), cv = (ll)(imag(outs[i])+.5);
+		ll bv = (ll)(imag(outl[i])+.5) + (ll)(real(outs[i])+.5);
+		res[i] = ((av % M * cut + bv) % M * cut + cv) % M;
+	}
+	return res;
+}
+vector<int> poly_pow(vector<int> poly, int p, int limit) {
+    vector<int> ans{1};
+    while (p) {
+        if(p&1) ans = convMod<mod>(ans, poly);
+        poly = convMod<mod>(poly, poly);
+        if(ans.size() > limit)
+            ans.resize(limit);
+        if(poly.size() > limit)
+            poly.resize(limit);
+        p >>= 1;
+    }
+    return ans;
+}
+
+// NTT MOD CRT SHIT
+
+const ll mod = (119 << 23) + 1, root = 62; // = 998244353 , generator = 3
+// For p < 2^30 there is also e.g. 5 << 25, 7 << 26, 479 << 21
+// and 483 << 21 (same root). The last two are > 10^9.
+
+
+ll modpow(ll b, ll e) {
+    ll ans = 1;
+    for (; e; b = b * b % mod, e /= 2)
+        if (e & 1) ans = ans * b % mod;
+    return ans;
+}
+
+// Primitive Root of the mod of form 2^a * b + 1
+int generator () {
+    vector<int> fact;
+    int phi = mod-1,  n = phi;
+    for (int i=2; i*i<=n; ++i)
+        if (n % i == 0) {
+            fact.push_back (i);
+            while (n % i == 0)
+                n /= i;
+        }
+    if (n > 1)
+        fact.push_back (n);
+
+    for (int res=2; res<=mod; ++res) {
+        bool ok = true;
+        for (size_t i=0; i<fact.size() && ok; ++i)
+            ok &= modpow (res, phi / fact[i]) != 1;
+        if (ok)  return res;
+    }
+    return -1;
+}
+int modpow(int b, int e, int m) {
+    int ans = 1;
+    for (; e; b = (ll)b * b % m, e /= 2)
+        if (e & 1) ans = (ll)ans * b % m;
+    return ans;
+}
+
+void ntt(vector<int> &a) {
+    int n = (int)a.size(), L = 31 - __builtin_clz(n);
+    vector<int> rt(2, 1); // erase the static if you want to use two moduli;
+    for (int k = 2, s = 2; k < n; k *= 2, s++) { // erase the static if you want to use two moduli;
+        rt.resize(n);
+        int z[] = {1, modpow(root, mod >> s, mod)};
+        for (int i = k; i < 2*k; ++i) rt[i] = (ll)rt[i / 2] * z[i & 1] % mod;
+    }
+    vector<int> rev(n);
+    for (int i = 0; i < n; ++i) rev[i] = (rev[i / 2] | (i & 1) << L) / 2;
+    for (int i = 0; i < n; ++i) if (i < rev[i]) swap(a[i], a[rev[i]]);
+    for (int k = 1; k < n; k *= 2) {
+        for (int i = 0; i < n; i += 2 * k) {
+            for (int j = 0; j < k; ++j) {
+                int z = (ll)rt[j + k] * a[i + j + k] % mod, &ai = a[i + j];
+                a[i + j + k] = ai - z + (z > ai ? mod : 0);
+                ai += (ai + z >= mod ? z - mod : z);
+            }
+        }
+    }
+}
+vector<int> conv(const vector<int> &a, const vector<int> &b) {
+    if (a.empty() || b.empty()) return {};
+    int s = (int)a.size() + (int)b.size() - 1, B = 32 - __builtin_clz(s), n = 1 << B;
+    int inv = modpow(n, mod - 2, mod);
+    vector<int> L(a), R(b), out(n);
+    L.resize(n), R.resize(n);
+    ntt(L), ntt(R);
+    for (int i = 0; i < n; ++i) out[-i & (n - 1)] = (ll)L[i] * R[i] % mod * inv % mod;
+    ntt(out);
+    return {out.begin(), out.begin() + s};
+}
+
+ll CRT(ll a, ll m1, ll b, ll m2) {
+    __int128 m = m1*m2;
+    ll ans = a*m2%m*modpow(m2, m1-2, m1)%m + m1*b%m*modpow(m1, m2-2, m2)%m;
+    return ans % m;
+}
+
+
+/*
+
+int mod, root, desired_mod = 1000000007;
+const int mod1 = 167772161;
+const int mod2 = 469762049;
+const int mod3 = 754974721;
+const int root1 = 3;
+const int root2 = 3;
+const int root3 = 11;
+
+int CRT(int a, int b, int c, int m1, int m2, int m3) {
+    __int128 M = (__int128)m1*m2*m3;
+    ll M1 = (ll)m2*m3;
+    ll M2 = (ll)m1*m3;
+    ll M3 = (ll)m2*m1;
+
+    int M_1 = modpow(M1%m1, m1 - 2, m1);
+    int M_2 = modpow(M2%m2, m2 - 2, m2);
+    int M_3 = modpow(M3%m3, m3 - 2, m3);
+
+    __int128 ans = (__int128)a*M1*M_1;
+    ans += (__int128)b*M2*M_2;
+    ans += (__int128)c*M3*M_3;
+
+    return (ans % M) % desired_mod;
+}
+
+*/
+__int128 read() {
+  __int128 x = 0, f = 1;
+  char ch = getchar();
+  while (ch < '0' || ch > '9') {
+      if (ch == '-') f = -1;
+      ch = getchar();
+  }
+  while (ch >= '0' && ch <= '9') {
+      x = x * 10 + ch - '0';
+      ch = getchar();
+  }
+  return x * f;
+}
+void print(__int128 x) {
+  if (x < 0) {
+      putchar('-');
+      x = -x;
+  }
+  if (x > 9) print(x / 10);
+  putchar(x % 10 + '0');
+}
+
+// MATRIX EXPO ARRAY C WRAPPER , FASTER THAN VECTOR & HEAPS YAY!!!
+const int MAX = 103;
+using matrix = array<array<int, MAX>, MAX>;
+ 
+matrix operator*(const matrix &a, const matrix &b){
+	matrix ret;
+	
+	for (int i = 0; i < MAX; i ++)
+		for (int j = 0; j < MAX; j ++)
+			ret[i][j] = 0;
+	
+	for (int r = 0; r < 103; r ++)
+		for (int c = 0; c < 103; c ++)
+            {
+                ll sum = 0;
+                for (int k = 0; k < 103; k ++){
+                    (sum += ( 1ll * a[r][k]) * (b[k][c]) )%= mod;
+                    
+                }
+                ret[r][c] = sum;
+            }
+
+	
+	return ret;
+}
+auto initialize = [&](auto &mt){
+		for (int i = 0; i < MAX; i ++)
+			for (int j = 0; j < MAX; j ++)
+				mt[i][j] = 0;
+	};
+    //EXPONENTIATION BINARY..
+for(int i = 1;i <= k;i <<= 1){
+        if(i & k)T = T * trans;
+        trans = trans * trans;
+    }
+// -----------------------------------------------
+
+// GEOMETRY!
+/*
+DONT FORGET , Point USES DOUBLE IN ITS INNERS!!! NOTE FOR Long Doubles !!
+*/
+//#define M_PI       3.14159265358979323846   // pi
+//#define double long double
+#define int ll
+const double PI = acosl(-1);
+const double EPS = 1e-9;
+template < typename T = int > struct Point {
+    T x, y;
+    Point(T _x = 0, T _y = 0) : x(_x), y(_y) {}
+    Point(const Point &p) : x(p.x), y(p.y) {}
+    Point operator + (const Point &p) const { return Point(x + p.x, y + p.y); }
+    Point operator - (const Point &p) const { return Point(x - p.x, y - p.y); }
+    Point operator * (T c) const { return Point(x * c, y * c); }
+    Point operator / (T c) const { return Point(x / c, y / c); }
+    bool operator == (const Point &p) const { return x == p.x && y == p.y; }
+    bool operator != (const Point &p) const { return x != p.x || y != p.y; }
+    bool operator < (const Point &p) const { return make_pair(y, x) < make_pair(p.y, p.x); }
+    bool operator > (const Point &p) const { return make_pair(y, x) > make_pair(p.y, p.x); }
+    bool operator <= (const Point &p) const { return make_pair(y, x) <= make_pair(p.y, p.x); }
+    bool operator >= (const Point &p) const { return make_pair(y, x) >= make_pair(p.y, p.x); }
+    T dot(const Point &p) const { return x * p.x + y * p.y; }
+    T cross(const Point &p) const { return x * p.y - y * p.x; }
+    T cross(const Point &a, const Point &b) const { return (a - *this).cross(b - *this); }
+    T dist() const { return x * x + y * y; }
+    T dist(const Point &p) const { return (*this - p).dist(); }
+    double distance() const { return sqrt(1.0 * dist()); }
+    double distance(const Point &p) const { return sqrt(1.0 * dist(p)); }
+    double angle() const { return atan2l(y, x); }
+    double angle(const Point &p) const { return atan2l(cross(p), dot(p)); }
+    Point unit() const { return *this / distance(); }
+    Point perp() const { return Point(-y, x); }
+    Point rotate(double a) const { return Point(x * cos(a) - y * sin(a), x * sin(a) + y * cos(a)); }
+    Point rotate(const Point &p, double a) const { return (*this - p).rotate(a) + p; }
+    Point normal() const { return perp().unit(); }
+    friend istream& operator >> (istream &in, Point &p) { return in >> p.x >> p.y; }
+    friend ostream& operator << (ostream &out, const Point &p) { return out << '(' << p.x << ' ' << p.y << ')'; }
+};
+using pt = Point<double>;
+using Line = pair<pt , pt>;//start point , direction
+bool intersects(const Line &l1 ,const Line &l2){//you may need to call function (l1 , l2) and (l2 , l1)..
+    auto [a1 , d1] = l1;
+    auto [a2 , d2] = l2;
+    double numo = (a2 - a1).cross(d2);
+    double deno = d1.cross(d2);
+    if(fabs(deno) < EPS){
+        //= zero , lines are parallel or same line , impossible in our problem
+        return false;
+    }
+    double t = numo / deno;
+    if(t < -EPS || t > 1 + EPS)return false;
+    return true;
+}
+template < typename T = int > struct Line {
+    pt v; T c;
+    // From direction vector v and offset c
+    Line(pt v, T c) : v(v), c(c) {}
+    // From equation ax+by=c
+    Line(T a, T b, T c) : v({b,-a}), c(c) {}
+    // From points P and Q
+    Line(pt p, pt q) : v(q-p), c(v.cross(p)) {}
+    // Will be defined later:
+    // - these work with T = int
+    T side(pt p) {return v.cross(p)-c;}
+    double dist(pt p) {return abs(side(p)) / v.distance();}
+    Line perpThrough(pt p) {return {p, p + v.perp()};}
+    bool cmpProj(pt p, pt q) {return v.dot(p) < v.dot(q);}//sort points on line , along direction ..
+    Line translate(pt t) {return {v, c + v.cross(t)};}
+    // - these require T = double
+    Line shiftLeft(double dist) {return {v, c + dist*(v.distance())};}
+    pt proj(pt p) {return p - v.perp()*side(p)/(v.dist());}
+    pt refl(pt p) {return p - v.perp()*2*side(p)/(v.dist());}
+};
+using line = Line<double>;
+//line - line intersection
+bool inter(line l1, line l2, pt &out) {
+    double d = l1.v.cross(l2.v);
+    if (d == 0) return false;
+    out = (l2.v*l1.c - l1.v*l2.c) / d; // requires floating-point coordinates
+    return true;
+}
+line bisector(line l1, line l2, bool interior) {
+    assert(l1.v.cross(l2.v) != 0); // l1 and l2 cannot be parallel!
+    double sign = interior ? 1 : -1;
+    return {l2.v/(l2.v.distance()) + l1.v/(l1.v.distance()) * sign,
+    l2.c/(l2.v.distance()) + l1.c/(l1.v.distance()) * sign};
+}
+bool inDisk(pt a, pt b, pt p) {
+    return (a-p).dot(b-p) <= 0;
+}
+int orient(pt a, pt b, pt c) {return (b-a).cross(c-a);}
+bool onSegment(pt a , pt b , pt p){
+    return orient(a , b , p) == 0 && inDisk(a , b, p);
+}
+// intersection between segments A---B and C---D
+bool properInter(pt a, pt b, pt c, pt d, pt &out) {
+  double oa = orient(c,d,a),
+  ob = orient(c,d,b),
+  oc = orient(a,b,c),
+  od = orient(a,b,d);
+  // Proper intersection exists iff opposite signs
+  if (oa*ob < 0 && oc*od < 0) {
+    out = (a*ob - b*oa) / (ob-oa);
+    return true;
+  }
+  return false;
+}
+// To create sets of points we need a comparison function
+struct cmpX {
+    bool operator()(pt a, pt b) const {
+        return make_pair(a.x, a.y) < make_pair(b.x, b.y);
+    }
+};
+set<pt,cmpX> inters(pt a, pt b, pt c, pt d) {
+    pt out;
+    if (properInter(a,b,c,d,out)) return {out};
+    set<pt,cmpX> s;
+    if (onSegment(c,d,a)) s.insert(a);
+    if (onSegment(c,d,b)) s.insert(b);
+    if (onSegment(a,b,c)) s.insert(c);
+    if (onSegment(a,b,d)) s.insert(d);
+    return s;
+}
+// dist from p to seg a--b
+double segPoint(pt a, pt b, pt p) {
+  if (a != b) {
+    line l(a,b);
+    if (l.cmpProj(a,p) && l.cmpProj(p,b)) // if closest to projection
+      return l.dist(p); // output distance to line
+  }
+  return min((p-a).distance(), (p-b).distance()); // otherwise distance to A or B
+}
+// dist between 2 segments..
+double segSeg(pt a, pt b, pt c, pt d) {
+  pt dummy;
+  if (properInter(a,b,c,d,dummy))
+    return 0;
+  return min({segPoint(a,b,c), segPoint(a,b,d),
+    segPoint(c,d,a), segPoint(c,d,b)});
+}
+bool half(pt p) { // true if in blue half
+    assert(p.x != 0 || p.y != 0); // the argument of (0,0) is undefined
+    return p.y > 0 || (p.y == 0 && p.x < 0);
+}
+void polarSort(vector<pt> &v) {
+    sort(v.begin(), v.end(), [](pt v, pt w) {
+        return make_tuple(half(v), 0) < make_tuple(half(w), v.cross(w));
+    });
+}
+
+// Ray Test , are we inside a polygon?
+// true if P at least as high as A (blue part)
+bool above(pt a, pt p) {
+  return p.y >= a.y;
+}
+// check if [PQ] crosses ray from A
+bool crossesRay(pt a, pt p, pt q) {
+  return (above(a,q) - above(a,p)) * orient(a,p,q) > 0;
+}
+// if strict, returns false when A is on the boundary
+bool inPolygon(vector<pt> p, pt a, bool strict = true) {
+  int numCrossings = 0;
+  for (int i = 0, n = p.size(); i < n; i++) {
+    if (onSegment(p[i], p[(i+1)%n], a))
+      return !strict;
+    numCrossings += crossesRay(a, p[i], p[(i+1)%n]);
+  }
+  return numCrossings & 1; // inside if odd number of crossings
+}
+// accumulate non-negative doubles for less absolute error
+struct stableSum {
+  int cnt = 0;
+  vector<double> v, pref{0};
+  void operator+=(double a) {
+    assert(a >= 0);
+    int s = ++cnt;
+    while (s % 2 == 0) {
+      a += v.back();
+      v.pop_back(), pref.pop_back();
+      s /= 2;
+    }
+    v.push_back(a);
+    pref.push_back(pref.back() + a);
+  }
+  double val() {return pref.back();}
+};
+//Circles Stuff , Copied , not tested
+// Sign function: returns +1 if x>EPS, -1 if x<-EPS, else 0
+inline int sgn(ld x) { return (x > EPS) - (x < -EPS); }
+
+// Circle represented by center o and radius r
+struct Circle {
+    pt o;
+    ld r;
+    Circle() : o(pt()), r(0) {}
+    Circle(pt _o, ld _r) : o(_o), r(_r) {}
+};
+
+// Check if point p lies inside or on circle C [percision errors]
+bool contains(const Circle& C, const Point& p) {
+    return sgn(dist(C.o, p) - C.r) <= 0;
+}
+
+// Intersection of circle C with line through points A -> B
+// Idea: project center onto line, then find distances along perpendicular
+vector<Point> circleLineIntersection(const Circle& C, const Point& A, const Point& B) {
+    Point dir = B - A;
+    // Projection parameter t of center onto the line 
+    ld t = dot(C.o - A, dir) / norm2(dir);
+    Point proj = A + dir * t;
+    // Distance^2 from projection to intersection points
+    ld h2 = C.r*C.r - dist2(proj, C.o);
+    vector<Point> res;
+    if (sgn(h2) < 0) return res;                  // no intersection
+    ld h = sqrt(max((ld)0, h2));                // perpendicular offset
+    Point unit = dir / sqrt(norm2(dir));        // unit direction of line
+    res.push_back(proj + unit * h);
+    if (sgn(h) != 0)
+        res.push_back(proj - unit * h);
+    return res;
+}
+
+// Intersection points of two circles C1 and C2
+// Geometric concept: two circles intersect in 0, 1, or 2 points.
+// We find the line of intersection (the radical line) by dropping a perpendicular
+// from C1.o towards C2.o at distance x = (d^2 + r1^2 - r2^2)/(2d). Then the intersection points
+// lie at a perpendicular distance h = sqrt(r1^2 - x^2) from that foot point.
+vector<Point> circleCircleIntersection(const Circle& C1, const Circle& C2) {
+    ld d = dist(C1.o, C2.o);
+    // Check for infinite or no solutions
+    if (sgn(d) == 0 && sgn(C1.r - C2.r) == 0) return {};
+    if (sgn(d - C1.r - C2.r) > 0) return {};
+    if (sgn(d - fabs(C1.r - C2.r)) < 0) return {};
+    // Distance from C1.o to the line connecting intersection points
+    ld x = (d*d - C2.r*C2.r + C1.r*C1.r) / (2*d);
+    ld h2 = C1.r*C1.r - x*x;
+    Point v = (C2.o - C1.o) / d;
+    Point p = C1.o + v * x;                      // foot of perpendicular on radical line
+    if (sgn(h2) < 0) return {p};                // one intersection (tangent)
+    ld h = sqrt(h2);
+    // Intersection points by moving ± perpendicular to v
+    return { p + Point(-v.y, v.x) * h,
+             p - Point(-v.y, v.x) * h };
+}
+
+// Tangent points from external point P to circle C
+// Geometric concept: tangents form right angles with the radius at the contact point.
+// Construct right triangle: OP of length d, radius r. Distance from O to tangent foot is l = r^2/d,
+// and offset distance h = sqrt(d^2 - l^2). Direction is along OP, offset perpendicular.
+vector<Point> tangents(const Circle& C, const Point& P) {
+    vector<Point> res;
+    Point v = P - C.o;
+    ld d2 = norm2(v);
+    ld r2 = C.r*C.r;
+    if (d2 < r2 - EPS) return res;              // P inside, no tangents
+    ld d = sqrt(d2);
+    ld l = r2 / d;                              // distance from O to tangent base
+    ld h2 = d2 - l*l;                           // squared distance from base to tangent points
+    Point u = v / d;
+    Point perp(-u.y, u.x);
+    // Two tangent points: base plus/minus perpendicular component
+    res.push_back(C.o + u * l + perp * sqrt(max((ld)0, h2)));
+    if (sgn(h2) != 0)
+        res.push_back(C.o + u * l - perp * sqrt(max((ld)0, h2)));
+    return res;
+}
+
+// Area of overlap between two circles A and B
+// Geometric concept: overlapping region is union of two circular segments.
+// For partial overlap, compute segment angles α, β via law of cosines:
+// α = 2*acos((d^2 + r1^2 - r2^2)/(2*d*r1)), similarly β. Then area =
+// 0.5*r1^2*(α - sinα) + 0.5*r2^2*(β - sinβ).
+ld circleOverlapArea(const Circle& A, const Circle& B) {
+    ld d = A.o.distance(B.o);
+    // No overlap
+    if (sgn(d - (A.r + B.r)) >= 0) return 0;
+    // One circle completely inside the other
+    if (sgn(d + min(A.r, B.r) - max(A.r, B.r)) <= 0)
+        return PI * min(A.r, B.r) * min(A.r, B.r);
+    // Partial overlap: compute two segment areas
+    ld x = (d*d + A.r*A.r - B.r*B.r) / (2*d);
+    // Central angles for segments
+    ld ang1 = 2 * acosl(x / A.r);
+    ld ang2 = 2 * acosl((d-x) / B.r);
+    // Segment areas
+    ld area1 = 0.5 * A.r*A.r * (ang1 - sinl(ang1));
+    ld area2 = 0.5 * B.r*B.r * (ang2 - sinl(ang2));
+    return area1 + area2;
+}
+
+// Example usage:
+// Circle C(Point(0,0), 5);
+// vector<Point> pts = circleCircleIntersection(C, Circle(Point(5,0), 5));
+// for (auto &p : pts) cout << p.x << " " << p.y << "\n";
+
+struct Convex_Hull {
+    // cross = (b−a) × (c−a)
+    static ll cross(const pt& a, const pt& b, const pt& c) {
+        return (b.x - a.x)*(c.y - a.y)
+             - (b.y - a.y)*(c.x - a.x);
+    }
+
+    // orientation using cross
+    //  >0: left turn (CCW), <0: right turn (CW), 0: collinear
+    int orientation(const pt& a, const pt& b, const pt& c) {
+        ll v = cross(a,b,c);
+        if (v < 0) return -1;
+        if (v > 0) return  1;
+        return 0;
+    }
+
+    // true if a→b→c is a left turn (or collinear, if include_collinear)
+    bool ccw(const pt& a, const pt& b, const pt& c, bool include_collinear) {
+        int o = orientation(a,b,c);
+        return o > 0 || (include_collinear && o == 0);
+    }
+
+    // true if a,b,c are collinear
+    bool is_collinear(const pt& a, const pt& b, const pt& c) {
+        return orientation(a,b,c) == 0;
+    }
+
+    vector<pt> convex_points;
+
+    // points: input array (will be re‐ordered)
+    // include_collinear: if true, keeps collinear pts on hull edges
+    Convex_Hull(vector<pt>& points, bool include_collinear = false) {
+        // 1) find pivot
+        pt p0 = *min_element(points.begin(), points.end(),
+                             [&](auto &a, auto &b){
+                                 return a.y < b.y || (a.y==b.y && a.x < b.x);
+                             });
+        // 2) sort by angle CCW around p0
+        sort(points.begin(), points.end(), [&](auto &a, auto &b){
+            int o = orientation(p0, a, b);
+            if (o == 0) 
+                return (p0.dist(a) < p0.dist(b));  // closer first
+            return o > 0;  // left turn (a before b) for CCW
+        });
+        // 3) optionally reverse the tail to keep farthest collinear last
+        if (include_collinear) {
+            int i = (int)points.size()-1;
+            while (i > 0 && is_collinear(p0, points[i-1], points.back())) 
+                --i;
+            reverse(points.begin()+i, points.end());
+        }
+        // 4) build hull
+        for (auto &pt : points) {
+            while (convex_points.size() >= 2
+                && !ccw(convex_points[convex_points.size()-2],
+                        convex_points.back(),
+                        pt,
+                        include_collinear))
+            {
+                convex_points.pop_back();
+            }
+            convex_points.push_back(pt);
+        }
+    }
+};
+//take care of "strictly of in / out stuff"
+bool inConvexPolygon(const vector<pt> & vec , pt p){//good for convex polys CCW O(log n)
+	if(vec.size() == 0)return false;
+    if(vec.size() == 1)return p == vec.back();//point
+    if(vec.size() == 2)return onSegment(vec[0] , vec[1] , p);//line
+    int n = vec.size();
+    if(orient(vec[0] , vec[1] , p) < 0)return false;//out of widge..
+    if(orient(vec[0] , vec[n - 1] , p) > 0)return false;
+    int tar = -1;
+    int l = 1 , r = n - 2 , mid;
+    while(l <= r){
+        mid = l + (r - l)/2;
+        if(orient(vec[0] , vec[mid] , p) >= 0){
+            tar = mid;
+            l = mid + 1;
+        }
+        else r = mid - 1;
+    }
+    return orient(vec[tar] , vec[tar + 1] , p) >= 0;
+}
+// WINDING Numbers
+// returns >0 for p left of AB, =0 for on AB, <0 for p right of AB
+double isLeft(const Point& A, const Point& B, const Point& P) {
+    return (B.x - A.x) * (P.y - A.y) - (P.x - A.x) * (B.y - A.y);
+}
+
+// winding number test: returns how many times polygon winds around P
+// >0 means inside (counter‐clockwise winding), 0 means outside
+int windingNumber(const vector<Point>& poly, const Point& P) {
+    int wn = 0;
+    int n = poly.size();
+    for (int i = 0; i < n; ++i) {
+        const Point& A = poly[i];
+        const Point& B = poly[(i+1)%n];
+        if (A.y <= P.y) {
+            // upward crossing
+            if (B.y > P.y && isLeft(A,B,P) > 0)
+                ++wn;
+        } else {
+            // downward crossing
+            if (B.y <= P.y && isLeft(A,B,P) < 0)
+                --wn;
+        }
+    }
+    return wn;
+}
+
+// DnC  closes Pair of points
+// 2 implementations 
+//Imp 1:
+# 版權聲明： 本網誌所有文章除特別聲明外，均採用 (CC)BY-NC-SA 許可協議。轉載請註明出處！
+
+double ds(point& a, point& b)
+{
+  clc dst..
+}
+double Combine(int& a, int& b, int& mid, double& l, double& r)
+{
+	double d = min(l, r);
+	double line = (V[mid].x + V[mid + 1].x) / 2;
+	double Min = d;
+	for (int i = mid + 1; i <= b && V[i].x < line + d; ++i)
+		for (int j = mid; j >= a && V[j].x > line - d; --j)
+			Min = min(Min, ds(V[i], V[j]));
+	return Min;
+}
+double Divide(int a, int b)
+{
+	if (a >= b) return 1000000;
+	int mid = (a + b) / 2;
+	double l = Divide(a, mid);
+	double r = Divide(mid + 1, b);
+	return Combine(a, b, mid, l, r);
+}
+int main()
+{
+	while (cin >> N)
+	{
+		read();
+		sort(V.begin(), V.end(), [](point& a, point& b) { return a.x < b.x; });
+		cout << Divide(0, N - 1) << "\n";
+	}
+}
+
+//Imp 2
+struct Point
+{
+	long double x, y;
+	
+	bool operator<(const Point &other)
+	{
+		if (x == other.x)
+		{
+			return y < other.y;
+		}
+		return x < other.x;
+	}
+};
+
+const pair<Point, Point> INF_P{{-1e9, -1e9}, {1e9, 1e9}};
+
+long double dist(const pair<Point, Point> &a)
+{
+	long double d1 = a.first.x - a.second.x;
+	long double d2 = a.first.y - a.second.y;
+	return sqrt(d1 * d1 + d2 * d2);
+}
+
+pair<Point, Point> get_closest_points(const pair<Point, Point> &a,
+									  const pair<Point, Point> &b)
+{
+	return dist(a) < dist(b) ? a : b;
+}
+
+/**
+ * Brute force for points with near
+ * the median point in the sorted array
+ */
+pair<Point, Point> strip_solve(vector<Point> &points)
+{
+	pair<Point, Point> ans = INF_P;
+	for (int i = 0; i < (int)points.size(); i++)
+	{
+		for (int j = i + 1; j < (int)points.size() && j - i < 9; j++)
+		{
+			ans = get_closest_points(ans, {points[i], points[j]});
+		}
+	}
+	return ans;
+}
+
+/** Solve the problem for range [l, r] */
+pair<Point, Point> solve_closest_pair(vector<Point> &points, int l, int r)
+{
+	if (l == r)
+	{
+		return INF_P;
+	}
+	int mid = (l + r) / 2;
+
+	// The smallest distance in range [l, mid]
+	pair<Point, Point> ans_left = solve_closest_pair(points, l, mid);
+	// The smallest distance in range [mid+1, r]
+	pair<Point, Point> ans_right = solve_closest_pair(points, mid + 1, r);
+	pair<Point, Point> ans;
+
+	ans = get_closest_points(ans_left, ans_right);
+	long double delta = dist(ans);
+
+	Point mid_point = points[mid];
+	vector<Point> strip;
+	for (int i = l; i < r; i++)
+	{
+		if (abs(points[i].x - mid_point.x) <= delta)
+		{
+			strip.push_back(points[i]);
+		}
+	}
+	sort(strip.begin(), strip.end(),
+		 [](Point a, Point b)
+		 { return a.y < b.y || (a.y == b.y && a.x < b.x); });
+	return get_closest_points(ans, strip_solve(strip));
+}
+// Line sweep , first line intersection: like bently-ottman , more like shano - ...
+struct Point{
+	ll x , y;
+	Point operator - (const Point &p) const { return {x - p.x, y - p.y}; }
+	ll cross(const Point &o)const {return x * o.y - y * o.x;}
+};
+bool same(const Point& a ,const Point& b){
+	return abs(a.x - b.x) <= EPS && abs(a.y - b.y) <= EPS;
+}
+struct segment{
+	Point p , q;
+	int idx;
+	segment(Point _p , Point _q , int idx_): idx(idx_) , p(_p) , q(_q){} 
+	segment(){}
+	double getY(double x) const {
+		if(p.x == q.x){
+			//vertical segment..
+			return p.y;
+		}
+		return p.y + 1.0 * (x - p.x)/(q.x - p.x) * (q.y - p.y); 
+	}
+	bool operator<( const segment &B)const {
+		// 100 WAs take care!
+		double x = max(min(p.x,q.x), min(B.p.x,B.q.x));
+		double yA = getY(x), yB = B.getY(x);
+		if (abs(yA - yB) > EPS) 
+			return yA < yB;
+		// tie‐break by unique id
+			return idx < B.idx;
+	}
+};
+// 2D rectangles sweep: Area overlap
+  struct event {
+    int ind, type;
+    event() {}
+    event(int ind, int type) : ind(ind), type(type) {}
+  };
+  struct point {  int x, y;   };
+
+  const int RECT_MAX = 10000 + 9;
+  const int ENTRY = 0, EXIT = 1;
+  point rects[RECT_MAX][2];
+  bool inActiveSet[RECT_MAX];
+  event events_v[2 * RECT_MAX], events_h[2 * RECT_MAX];
+
+  bool cmpX(event a, event b) {
+    return rects[a.ind][a.type].x < rects[b.ind][b.type].x;
+  }
+  bool cmpY(event a, event b) {
+    return rects[a.ind][a.type].y < rects[b.ind][b.type].y;
+  }
+
+int main() {
+  long long area = 0;
+  int n = 0, eventsCnt = 0;  // # rectangles, edges
+
+  scanf("%d", &n);
+  for (int i = 0; i < n; ++i) {  // assume rectangle 2 points are ordered
+    scanf("%d %d %d %d", &rects[i][0].x, &rects[i][0].y, &rects[i][1].x, &rects[i][1].y);
+    events_v[eventsCnt] = event(i, ENTRY), events_v[eventsCnt + 1] = event(i, EXIT);
+    events_h[eventsCnt] = event(i, ENTRY), events_h[eventsCnt + 1] = event(i, EXIT);
+    eventsCnt += 2;
+  }
+  sort(events_v, events_v + eventsCnt, cmpX);
+  sort(events_h, events_h + eventsCnt, cmpY);
+
+  inActiveSet[events_v[0].ind] = 1;
+  for (int v = 1; v < eventsCnt; ++v) {  // Vertical sweep
+    event c = events_v[v], p = events_v[v - 1];
+    int cnt = 0, first_rect, delta_x, delta_y;
+
+    if ((delta_x = rects[c.ind][c.type].x - rects[p.ind][p.type].x) == 0)
+      continue;
+
+    for (int h = 0; h < eventsCnt; ++h)
+      if (inActiveSet[events_h[h].ind]) {  // Horizontal sweep
+        if (events_h[h].type == ENTRY) {
+          if (cnt++ == 0)
+            first_rect = h;
+        } else if (--cnt == 0) {
+          delta_y = rects[events_h[h].ind][EXIT].y - rects[events_h[first_rect].ind][ENTRY].y;
+          area += delta_x * delta_y;
+        }
+      }
+    inActiveSet[c.ind] = (c.type == ENTRY);
+  }
+  printf("%lld\n", area);
+}//.....
+
+int orient(Point a , Point b , Point c){
+	auto res = (b - a).cross (c - a);
+	if((res) == 0)return 0;
+	return res < 0? -1 : 1;
+}
+bool intersect1D(ll l1 , ll r1 , ll l2 , ll r2){
+	if(r1 < l1)swap(r1 , l1);
+	if(r2 < l2)swap(r2 , l2);
+	return max(l1 , l2) <= min(r1 , r2);
+}
+bool intersects(const segment& a , const segment &b){
+	return intersect1D(a.p.x , a.q.x , b.p.x , b.q.x) && intersect1D(a.p.y , a.q.y , b.p.y , b.q.y)
+		&& orient(a.p , a.q , b.p) * orient(a.p , a.q , b.q) <= 0 && orient(b.p , b.q , a.p) * orient(b.p , b.q , a.q) <= 0;
+}
+struct event{
+	Point p;
+	int type , idx;
+	bool operator<(const event &o)const{
+		if(p.x != o.p.x)return p.x < o.p.x;
+		return type > o.type;
+	}
+};
+vector<segment>segs;
+vector<event>events;
+int ottman(){
+	sort(all(events));
+	set<segment>st;
+	int fs = -1, ss = -1;
+	auto below = [&](set<segment>::iterator it)
+	{
+		if(it == st.begin())return st.end();
+		return --it;
+	};
+	for(auto cur : events){
+		if(cur.type == 1){
+			//entry
+			auto [it , statts] = st.insert(segs[cur.idx]);
+			auto prv = below(it);
+			auto nxt = next(it);
+			if(prv != st.end() && intersects(*it , *prv)){
+				fs = it->idx;
+				ss = prv->idx;
+				break;
+			}
+			if(nxt != st.end() && intersects(*it , *nxt)){
+				fs = it->idx;
+				ss = nxt->idx;
+				break;
+			}
+		}else{
+			auto it = st.find(segs[cur.idx]);
+			auto prv = below(it);
+			auto nxt = next(it);
+			if(prv != st.end() && nxt != st.end() && intersects(*nxt , *prv)){
+				fs = nxt->idx;
+				ss = prv->idx;
+				break;
+			}
+			st.erase(it);
+		}
+	}
+	return ..
+}
+// Line sweep: Bently-ottman (n + k)log n  
+//FULL CODE SAMPLE , not tested..
+// ----------------------------------------------------------------------------
+//  Point + Segment definitions
+// ----------------------------------------------------------------------------
+struct Point {
+    double x, y;
+    bool operator<(Point const& o) const {
+        if (x != o.x) return x < o.x;
+        return y < o.y;
+    }
+    bool operator==(Point const& o) const {
+        return fabs(x - o.x) < 1e-9 && fabs(y - o.y) < 1e-9;
+    }
+};
+
+struct Segment {
+    Point p, q;     // endpoints, not necessarily in order
+    int id;         // unique identifier for tie-breaking
+    // compute y at vertical line X
+    double y_at(double X) const {
+        if (fabs(p.x - q.x) < 1e-9) 
+            return p.y;
+        return p.y + (q.y - p.y) * ( (X - p.x) / (q.x - p.x) );
+    }
+};
+
+// ----------------------------------------------------------------------------
+//  Global sweep-line state & comparator for status structure
+// ----------------------------------------------------------------------------
+double sweep_x;
+struct Cmp {
+    bool operator()(Segment const* a, Segment const* b) const {
+        double ya = a->y_at(sweep_x);
+        double yb = b->y_at(sweep_x);
+        if (fabs(ya - yb) > 1e-9) 
+            return ya < yb;
+        return a->id < b->id;
+    }
+};
+
+// ----------------------------------------------------------------------------
+//  Event queue: left endpoint, intersection, right endpoint
+// ----------------------------------------------------------------------------
+enum EventType { LEFT = 0, INTER = 1, RIGHT = 2 };
+
+struct Event {
+    double x;
+    Point   pt;       // location of event
+    EventType type;
+    Segment *s1, *s2; // for INTER: both segments; else s1 is the segment
+    bool operator<(Event const& o) const {
+        if (x != o.x) return x > o.x;        // min-heap on x
+        return type > o.type;                // LEFT < INTER < RIGHT
+    }
+};
+
+// ----------------------------------------------------------------------------
+//  Compute intersection (if any) of two segments A & B.
+//  Returns true + writes intersection to 'out' if they properly intersect.
+// ----------------------------------------------------------------------------
+bool segIntersect(Segment const& A, Segment const& B, Point &out) {
+    // parametric form: A.p + t*(A.q-A.p) == B.p + u*(B.q-B.p)
+    double x1 = A.p.x, y1 = A.p.y;
+    double x2 = A.q.x, y2 = A.q.y;
+    double x3 = B.p.x, y3 = B.p.y;
+    double x4 = B.q.x, y4 = B.q.y;
+    double den = (x1-x2)*(y3-y4) - (y1-y2)*(x3-x4);
+    if (fabs(den) < 1e-9) return false;   // parallel or colinear
+    double t = ( (x1-x3)*(y3-y4) - (y1-y3)*(x3-x4) ) / den;
+    double u = ( (x1-x3)*(y1-y2) - (y1-y3)*(x1-x2) ) / den;
+    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+        out.x = x1 + t*(x2-x1);
+        out.y = y1 + t*(y2-y1);
+        return true;
+    }
+    return false;
+}
+
+// ----------------------------------------------------------------------------
+//  Main sweep: build event-queue, process, and collect intersections
+// ----------------------------------------------------------------------------
+vector<Point> findAllIntersections(vector<Segment>& segs) {
+    priority_queue<Event> pq;
+    int n = segs.size();
+
+    // 1) populate PQ with segment endpoints
+    for (int i = 0; i < n; i++) {
+        auto &s = segs[i];
+        // ensure p.x <= q.x
+        if (s.q < s.p) swap(s.p, s.q);
+        s.id = i;
+        pq.push({s.p.x, s.p, LEFT,  &s, nullptr});
+        pq.push({s.q.x, s.q, RIGHT, &s, nullptr});
+    }
+
+    set<Segment*, Cmp> status;
+    vector<Point> result;
+
+    auto schedule = [&](Segment* A, Segment* B) {
+        if (!A || !B) return;
+        Point ip;
+        if (!segIntersect(*A, *B, ip)) return;
+        // don't reschedule if behind sweep line
+        if (ip.x < sweep_x - 1e-9) return;
+        pq.push({ip.x, ip, INTER, A, B});
+    };
+
+    while (!pq.empty()) {
+        Event ev = pq.top(); pq.pop();
+        sweep_x = ev.x;
+
+        if (ev.type == LEFT) {
+            // insert and check its two neighbors
+            auto it = status.insert(ev.s1).first;
+            if (it != status.begin()) {
+                schedule(*prev(it), *it);
+            }
+            if (next(it) != status.end()) {
+                schedule(*it, *next(it));
+            }
+        }
+        else if (ev.type == RIGHT) {
+            // remove and check former neighbors
+            auto it = status.find(ev.s1);
+            if (it == status.end()) continue;
+            auto above = next(it), below = (it==status.begin() ? status.end() : prev(it));
+            if (above!=status.end() && below!=status.end()) {
+                schedule(*below, *above);
+            }
+            status.erase(it);
+        }
+        else { // INTERSECTION
+            result.push_back(ev.pt);
+            // swap the two segments in the status:
+            auto a = ev.s1, b = ev.s2;
+            auto ita = status.find(a);
+            auto itb = status.find(b);
+            if (ita==status.end() || itb==status.end()) continue;
+            // ensure ita comes before itb
+            if (Cmp()(b,a)) swap(ita, itb);
+            status.erase(ita);
+            status.erase(itb);
+            status.insert(b);
+            status.insert(a);
+            // after swap, check new neighbors
+            auto it_new_b = status.find(b);
+            if (it_new_b!=status.begin())
+                schedule(*prev(it_new_b), *it_new_b);
+            auto it_new_a = status.find(a);
+            if (next(it_new_a)!=status.end())
+                schedule(*it_new_a, *next(it_new_a));
+        }
+    }
+
+    // dedupe identical points
+    sort(result.begin(), result.end());
+    result.erase(unique(result.begin(), result.end()), result.end());
+    return result;
+}
+
+// ----------------------------------------------------------------------------
+//  Driver: read n, segments, run sweep, print all intersections
+// ----------------------------------------------------------------------------
+int main(){
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int n;
+    cin >> n;
+    vector<Segment> segs(n);
+    for (int i = 0; i < n; i++) {
+        cin >> segs[i].p.x >> segs[i].p.y
+            >> segs[i].q.x >> segs[i].q.y;
+    }
+
+    auto pts = findAllIntersections(segs);
+    cout << pts.size() << "\n";
+    cout << fixed << setprecision(6);
+    for (auto &p : pts) {
+        cout << p.x << " " << p.y << "\n";
+    }
+    return 0;
+}
+
+// EPS tester
+long double x = 10000;
+cerr<< (x+EPS == x)<<endl;
+long double y = nextafterl(x, x+ 5);  // the smallest long double > 1.0L
+long double eps = y - x;
+std::cout << std::fixed << std::setprecision(20) << eps<<" , "<<x << endl;
+
+// Opitmized Segment tree , size doesn't have to be a power of 2 !!!
+
+int seg[2 * OL];
+int sn;  // array size
+int merge(int l ,int r){
+	return min(l , r);
+}
+void build() {  // build the tree
+  for (int i = sn - 1; i > 0; --i) seg[i] = merge(seg[i<<1] , seg[i<<1|1]);
+}
+
+void update(int p, int value) {  // set value at position p
+  for (seg[p += sn] = value; p > 1; p >>= 1) seg[p>>1] = merge(seg[p] , seg[p^1]);
+}
+
+int query(int l, int r) {  // sum on interval [l, r]
+  r++;
+  int res = INT_MAX;
+  for (l += sn, r += sn; l < r; l >>= 1, r >>= 1) {
+    if (l&1) chmin(res , seg[l++]);
+    if (r&1) chmin(res , seg[--r]);
+  }
+  return res;
+}
+// Non commutative combiner :
+void modify(int p, const S& value) {
+  for (t[p += n] = value; p >>= 1; ) t[p] = combine(t[p<<1], t[p<<1|1]);
+}
+
+S query(int l, int r) {
+  S resl, resr;
+  for (l += n, r += n; l < r; l >>= 1, r >>= 1) {
+    if (l&1) resl = combine(resl, t[l++]);
+    if (r&1) resr = combine(t[--r], resr);
+  }
+  return combine(resl, resr);
+}
+
+// Range update , sinlge element access , applying all updates yeilding full array
+// in O(n) instead of n log n:
+void modify(int l, int r, int value) {
+  for (l += n, r += n; l < r; l >>= 1, r >>= 1) {
+    if (l&1) t[l++] += value;
+    if (r&1) t[--r] += value;
+  }
+}
+
+int query(int p) {
+  int res = 0;
+  for (p += n; p > 0; p >>= 1) res += t[p];
+  return res;
+}
+void push() {
+  for (int i = 1; i < n; ++i) {
+    t[i<<1] += t[i];
+    t[i<<1|1] += t[i];
+    t[i] = 0;
+  }
+}
+//  .....
+namespace SEG
+{
+#define mid (l + r >> 1)
+#define ls (k << 1)
+#define rs (k << 1 | 1)
+	//typedef long long ll;
+	ll sum[OL << 2], tag[OL << 2];
+
+	void pushdown(int k, int l, int r)
+	{
+		sum[ls] += tag[k] * (mid - l + 1), tag[ls] += tag[k];
+		sum[rs] += tag[k] * (r - mid), tag[rs] += tag[k], tag[k] = 0;
+	}
+
+	void update(int k, int l, int r, int ql, int qr, int v)
+	{
+		if (l >= ql && r <= qr)
+		{
+			sum[k] += 1LL * v * (r - l + 1), tag[k] += v;
+			return;
+		}
+		if (tag[k])
+			pushdown(k, l, r);
+		if (mid >= ql)
+			update(ls, l, mid, ql, qr, v);
+		if (mid < qr)
+			update(rs, mid + 1, r, ql, qr, v);
+		sum[k] = sum[ls] + sum[rs];
+	}
+
+	ll query(int k, int l, int r, int ql, int qr)
+	{
+		if (l >= ql && r <= qr)
+			return sum[k];
+		if (tag[k])
+			pushdown(k, l, r);
+		ll s = 0;
+		if (mid >= ql)
+			s = query(ls, l, mid, ql, qr);
+		if (mid < qr)
+			s += query(rs, mid + 1, r, ql, qr);
+		return s;
+	}
+} // namespace SEG
+// Interval union Segment tree on compressed Y points..
+vector<ll>ys;
+struct SegTree {
+  int n;
+  vector<int>len , cover;
+
+  void build(int n_) {
+    if (__builtin_popcount(n_) != 1)
+      n = 1 << (__lg(n_) + 1);
+    else
+      n = n_;
+    len.resize(n << 1, 0);
+    cover.resize(n << 1 , 0);
+  }
+  int merge(int l, int r) {
+    return l + r;
+  }
+  void push(int k , int l , int r){
+	if(cover[k] > 0){
+		len[k] = ys[r] - ys[l];
+	}else{
+		len[k] = 0;
+		if((k << 1) < len.size()){
+			len[k] = len[k << 1] + len[k << 1 | 1];
+		}
+	}
+  }
+  //point update
+  void update(int ql, int qr, int v, int k, int sl, int sr) {
+    if (ql <= sl && sr <= qr)
+      {
+		cover[k] += v;
+		push(k , sl , sr);
+		return;
+	  }
+    if (qr <= sl || sr <= ql)
+      return;
+    int mid = (sl + sr) / 2;
+    update(ql, qr, v, k << 1, sl, mid);//half open interval seg tree..
+    update(ql, qr, v, k << 1 | 1, mid , sr);
+    push(k , sl , sr);
+  }
+};
+
+// 2D seg tree
+struct SegTree2D {
+  int n, m;
+  vector<vector<int>> tree;
+
+  // Merge function
+  int merge(int a, int b) {
+    return (a + b);
+  }
+
+  // Build the outer and inner segment trees  (n . m)
+  void build(int n_, int m_, vector<vector<int>>& mat) {
+    // normalize sizes to next power of 2
+    n = (__builtin_popcount(n_) == 1 ? n_ : 1 << (__lg(n_) + 1));
+    m = (__builtin_popcount(m_) == 1 ? m_ : 1 << (__lg(m_) + 1));
+    tree.assign(n << 1, vector<int>(m << 1, 0));
+
+    // copy initial matrix into leaves
+    for (int i = 0; i < n_; ++i)
+      for (int j = 0; j < m_; ++j)
+        tree[i + n][j + m] = mat[i][j];
+
+    // build inner trees
+    for (int i = 0; i < (n << 1); ++i)
+      for (int j = m - 1; j > 0; --j)
+        tree[i][j] = merge(tree[i][j << 1], tree[i][j << 1 | 1]);
+
+    // build outer tree
+    for (int i = n - 1; i > 0; --i)
+      for (int j = 0; j < (m << 1); ++j)
+        tree[i][j] = merge(tree[i << 1][j], tree[i << 1 | 1][j]);
+  }
+
+  // Query helper for 1D range in column
+  int query_y(int x, int y1, int y2) {
+    int res = 0;
+    for (y1 += m, y2 += m; y1 <= y2; y1 >>= 1, y2 >>= 1) {
+      if (y1 & 1) res = merge(res, tree[x][y1++]);
+      if (!(y2 & 1)) res = merge(res, tree[x][y2--]);
+    }
+    return res;
+  }
+
+  // Query 2D range [x1..x2][y1..y2] (log n . log m)
+  int query(int x1, int y1, int x2, int y2) {
+    int res = 0;
+    for (x1 += n, x2 += n; x1 <= x2; x1 >>= 1, x2 >>= 1) {
+      if (x1 & 1) res = merge(res, query_y(x1++, y1, y2));
+      if (!(x2 & 1)) res = merge(res, query_y(x2--, y1, y2));
+    }
+    return res;
+  }
+
+  // Point update at (x, y) with value v (log n . log m)
+  void update(int x, int y, int v) {
+    x += n;
+    y += m;
+    tree[x][y] = v;
+
+    // update column segment tree
+    for (int j = y >> 1; j > 0; j >>= 1)
+      tree[x][j] = merge(tree[x][j << 1], tree[x][j << 1 | 1]);
+
+    // update row segment trees
+    for (int i = x >> 1; i > 0; i >>= 1) {
+      int yy = y;
+      for (int j = yy; j > 0; j >>= 1)
+        tree[i][j] = merge(tree[i << 1][j], tree[i << 1 | 1][j]);
+    }
+  }
+};
+
+// Sack HLD dsu on trees , small to large ..blah blah
+int c[OL];
+int sz[OL];
+int big[OL];
+vector<int>adj[OL];
+int freq[OL];
+ll ans[OL];
+ll sum[OL];
+int mx = 0;
+
+void pre(int u, int p){
+    sz[u] = 1;
+    for (int v : adj[u]) if(v != p){
+        pre(v, u);
+        sz[u] += sz[v];
+        if(big[u] == 0 || sz[v] > sz[big[u]])
+            big[u] = v;
+    }
+}
+ 
+void upd(int col, int d){
+	if(freq[col] + d > mx)mx++;
+	else if(freq[col] == mx && sum[mx] == col)mx--;
+	sum[freq[col]] -= col;
+	freq[col] += d;
+	sum[freq[col]] += col;
+}
+ 
+void collect(int u, int p, int d){
+    upd(c[u], d);
+    for(int v : adj[u]) if(v!=p){
+        collect(v, u ,d);
+    }
+}
+ 
+void dfs(int u, int p, bool keep){
+    for(int v: adj[u]) if(v != p && v != big[u]){
+        dfs(v, u, false);
+    }
+    // add to DS
+    if(big[u] != 0)
+        dfs(big[u], u, true);
+    upd(c[u], 1);
+    for(int v: adj[u]) if(v != p && v != big[u])
+            collect(v, u, +1); // light/small subtrees
+ 
+    // answer queries
+    ans[u] = sum[mx];
+ 
+    // remove from DS
+    if(!keep)
+        collect(u, p, -1);
+}
+// .....
+vector<int> manacher(string s)// or &s according to your needs!
+{
+	string ns = "#";
+	for(auto c : s){
+		ns += c;
+		ns += '#';
+	}
+	swap(s , ns);
+	int n = s.size();
+	s = "@" + s + "$";
+	vector<int> len(n + 1);
+	int l = 1, r = 1;
+	for (int i = 1; i <= n; i++)
+	{
+		len[i] = min(r - i, len[l + (r - i)]);
+		while (s[i - len[i]] == s[i + len[i]])
+			len[i]++;
+		if (i + len[i] > r)
+		{
+			l = i - len[i];
+			r = i + len[i];
+		}
+	}
+	return len;
+}
+// ONLINE MANACHER!!!
+template <int delta> struct ManacherBase{
+private:
+		static const int maxn=1e5+1;
+        int r[maxn];
+        char s[maxn];
+        int mid,n,i;
+ 
+public:
+        ManacherBase():mid(0),i(0),n(1) 
+        {
+        	memset(r,-1,sizeof(int)*maxn);
+        	s[0]='$';
+        	r[0]=0;
+        }
+ 
+        int get(int pos)
+        {
+        		pos++;
+                if(pos<=mid)
+                        return r[pos];
+                else
+                        return min(r[mid - (pos - mid)], n - pos - 1);
+        }
+ 
+        void addLetter(char c)
+        {
+                s[n]=s[n+1]=c;
+ 
+                while(s[i - r[i] - 1 + delta] != s[i + r[i] + 1])
+                        r[++i] = get(i-1);
+                r[mid=i]++, n++;
+        }
+ 
+        int maxPal()
+        {
+                return ( n - mid - 1 ) * 2 + 1 - delta;
+        }
+} ;
+ 
+struct Manacher{
+private:
+        ManacherBase<1> manacherEven;
+        ManacherBase<0> manacherOdd;
+public:
+        void addLetter(char c)
+        {
+                manacherEven.addLetter(c);
+                manacherOdd.addLetter(c);
+        }
+ 
+        int maxPal()
+        {
+                return max(manacherEven.maxPal(), manacherOdd.maxPal());
+        }
+        int getRad(int type,int pos)
+        {
+                if(type)
+                        return manacherOdd.get(pos);
+                else
+                        return manacherEven.get(pos);
+        }
+} ;
+
+/* Suffix automation
+ order[i] -> the order of the ith suffix
+    ababba$
+    0123456
+    0-th suffix -> ababba
+    and so on
+
+ suf[i] -> which suffix is the order of i
+ lcp[i] -> the longest prefix between suf[i] and suf[i-1]
+ */
+struct suffix_array {
+    int n;
+    vector<int> suf, order,lcp;
+    int getOrder(int a) const {
+        return (a < (int) order.size() ? order[a] : 0);
+    }
+    void radix_sort(int k) {
+        vector<int> frq(n), tmp(n);
+        for (auto &it : suf)
+            frq[getOrder(it + k)]++;
+        for (int i = 1; i < n; i++)
+            frq[i] += frq[i - 1];
+        for (int i = n - 1; i >= 0; i--)
+            tmp[--frq[getOrder(suf[i] + k)]] = suf[i];
+        suf = tmp;
+    }
+    suffix_array(string s) {
+        n = s.size() + 1;
+        suf = order = vector<int>(n);
+        vector<int> newOrder(n);
+        for (int i = 0; i < n; i++)
+            suf[i] = i;
+        {
+            vector<int> tmp(n);
+            for (int i = 0; i < n; i++)
+                tmp[i] = s[i];
+            sort(all(tmp));
+            for (int i = 0; i < n; i++)
+                order[i] = (lower_bound(all(tmp), s[i]) - tmp.begin());
+        }
+        for (int len = 1; newOrder.back() != n - 1; len <<= 1) {
+            auto cmp = [&](const int &a, const int &b) {
+                if (getOrder(a) != getOrder(b))
+                    return getOrder(a) < getOrder(b);
+                return getOrder(a + len) < getOrder(b + len);
+            };
+            //sort(all(suf), cmp);
+            radix_sort(len);
+            radix_sort(0);
+            newOrder[0] = 0;
+            for (int i = 1; i < n; i++)
+                newOrder[i] = newOrder[i - 1] + cmp(suf[i - 1], suf[i]);
+            for (int i = 0; i < n; i++)
+                order[suf[i]] = newOrder[i];
+        }
+
+        lcp = vector <int>(n);
+        int k = 0;
+        for (int i =0;i<n-1;i++){
+            int pi = order[i];
+            int j = suf[pi-1];
+            while(s[i+k]==s[j+k])k++;
+            lcp[pi]=k;
+            k =max(k-1,0);
+        }
+    }
+};
+// Mo's algo , not much really
+// optimal at block size of n / sqrt(q)
+while(r < qr)add(arr[++r]);
+while(l < ql)remove(arr[l++]);
+while(l > ql)add(arr[--l]);
+while(r > qr)remove(arr[r--]);
+//dont forget to make HP indexing int64_t !! TLE / Overflow warning!
+int64_t gilbertOrder(int x, int y, int pow, int rotate)
+{
+	if (pow == 0)
+		return 0;
+	int hpow = 1 << (pow - 1);
+	int seg = (x < hpow) ? ((y < hpow) ? 0 : 3) : ((y < hpow) ? 1 : 2);
+	seg = (seg + rotate) & 3;
+	const int rotateDelta[4] = {3, 0, 0, 1};
+	int nx = x & (x ^ hpow), ny = y & (y ^ hpow);
+	int nrot = (rotate + rotateDelta[seg]) & 3;
+	int64_t subSquareSize = int64_t(1) << (2 * pow - 2);
+	int64_t ordd = seg * subSquareSize;
+	int64_t add = gilbertOrder(nx, ny, pow - 1, nrot);
+	ordd += (seg == 1 || seg == 2) ? add : (subSquareSize - add - 1);
+	return ordd;
+}
+
+int calculateHilbertPow(int n) 
+{
+	int pow = 1;
+	while ((1 << pow) < n)
+		pow++;
+	return pow;
+}
+
+// SQRT Tree   build in o(n log log n)
+// query in o(1) , update in sqrt(n)
+using SqrtTreeItem = int;
+SqrtTreeItem op(const SqrtTreeItem &a, const SqrtTreeItem &b){
+	return min(a , b);
+};
+
+inline int log2Up(int n) {
+    int res = 0;
+    while ((1 << res) < n) {
+        res++;
+    }
+    return res;
+}
+
+class SqrtTree {
+private:
+    int n, lg, indexSz;
+    vector<SqrtTreeItem> v;
+    vector<int> clz, layers, onLayer;
+    vector< vector<SqrtTreeItem> > pref, suf, between;
+
+    inline void buildBlock(int layer, int l, int r) {
+        pref[layer][l] = v[l];
+        for (int i = l+1; i < r; i++) {
+            pref[layer][i] = op(pref[layer][i-1], v[i]);
+        }
+        suf[layer][r-1] = v[r-1];
+        for (int i = r-2; i >= l; i--) {
+            suf[layer][i] = op(v[i], suf[layer][i+1]);
+        }
+    }
+
+    inline void buildBetween(int layer, int lBound, int rBound, int betweenOffs) {
+        int bSzLog = (layers[layer]+1) >> 1;
+        int bCntLog = layers[layer] >> 1;
+        int bSz = 1 << bSzLog;
+        int bCnt = (rBound - lBound + bSz - 1) >> bSzLog;
+        for (int i = 0; i < bCnt; i++) {
+            SqrtTreeItem ans;
+            for (int j = i; j < bCnt; j++) {
+                SqrtTreeItem add = suf[layer][lBound + (j << bSzLog)];
+                ans = (i == j) ? add : op(ans, add);
+                between[layer-1][betweenOffs + lBound + (i << bCntLog) + j] = ans;
+            }
+        }
+    }
+
+    inline void buildBetweenZero() {
+        int bSzLog = (lg+1) >> 1;
+        for (int i = 0; i < indexSz; i++) {
+            v[n+i] = suf[0][i << bSzLog];
+        }
+        build(1, n, n + indexSz, (1 << lg) - n);
+    }
+
+    inline void updateBetweenZero(int bid) {
+        int bSzLog = (lg+1) >> 1;
+        v[n+bid] = suf[0][bid << bSzLog];
+        update(1, n, n + indexSz, (1 << lg) - n, n+bid);
+    }
+
+    void build(int layer, int lBound, int rBound, int betweenOffs) {
+        if (layer >= (int)layers.size()) {
+            return;
+        }
+        int bSz = 1 << ((layers[layer]+1) >> 1);
+        for (int l = lBound; l < rBound; l += bSz) {
+            int r = min(l + bSz, rBound);
+            buildBlock(layer, l, r);
+            build(layer+1, l, r, betweenOffs);
+        }
+        if (layer == 0) {
+            buildBetweenZero();
+        } else {
+            buildBetween(layer, lBound, rBound, betweenOffs);
+        }
+    }
+
+    void update(int layer, int lBound, int rBound, int betweenOffs, int x) {
+        if (layer >= (int)layers.size()) {
+            return;
+        }
+        int bSzLog = (layers[layer]+1) >> 1;
+        int bSz = 1 << bSzLog;
+        int blockIdx = (x - lBound) >> bSzLog;
+        int l = lBound + (blockIdx << bSzLog);
+        int r = min(l + bSz, rBound);
+        buildBlock(layer, l, r);
+        if (layer == 0) {
+            updateBetweenZero(blockIdx);
+        } else {
+            buildBetween(layer, lBound, rBound, betweenOffs);
+        }
+        update(layer+1, l, r, betweenOffs, x);
+    }
+
+    inline SqrtTreeItem query(int l, int r, int betweenOffs, int base) {
+        if (l == r) {
+            return v[l];
+        }
+        if (l + 1 == r) {
+            return op(v[l], v[r]);
+        }
+        int layer = onLayer[clz[(l - base) ^ (r - base)]];
+        int bSzLog = (layers[layer]+1) >> 1;
+        int bCntLog = layers[layer] >> 1;
+        int lBound = (((l - base) >> layers[layer]) << layers[layer]) + base;
+        int lBlock = ((l - lBound) >> bSzLog) + 1;
+        int rBlock = ((r - lBound) >> bSzLog) - 1;
+        SqrtTreeItem ans = suf[layer][l];
+        if (lBlock <= rBlock) {
+            SqrtTreeItem add = (layer == 0) ? (
+                query(n + lBlock, n + rBlock, (1 << lg) - n, n)
+            ) : (
+                between[layer-1][betweenOffs + lBound + (lBlock << bCntLog) + rBlock]
+            );
+            ans = op(ans, add);
+        }
+        ans = op(ans, pref[layer][r]);
+        return ans;
+    }
+public:
+    inline SqrtTreeItem query(int l, int r) {
+        return query(l, r, 0, 0);
+    }
+
+    inline void update(int x, const SqrtTreeItem &item) {
+        v[x] = item;
+        update(0, 0, n, 0, x);
+    }
+
+    SqrtTree(const vector<SqrtTreeItem>& a)
+        : n((int)a.size()), lg(log2Up(n)), v(a), clz(1 << lg), onLayer(lg+1) {
+        clz[0] = 0;
+        for (int i = 1; i < (int)clz.size(); i++) {
+            clz[i] = clz[i >> 1] + 1;
+        }
+        int tlg = lg;
+        while (tlg > 1) {
+            onLayer[tlg] = (int)layers.size();
+            layers.push_back(tlg);
+            tlg = (tlg+1) >> 1;
+        }
+        for (int i = lg-1; i >= 0; i--) {
+            onLayer[i] = max(onLayer[i], onLayer[i+1]);
+        }
+        int betweenLayers = max(0, (int)layers.size() - 1);
+        int bSzLog = (lg+1) >> 1;
+        int bSz = 1 << bSzLog;
+        indexSz = (n + bSz - 1) >> bSzLog;
+        v.resize(n + indexSz);
+        pref.assign(layers.size(), vector<SqrtTreeItem>(n + indexSz));
+        suf.assign(layers.size(), vector<SqrtTreeItem>(n + indexSz));
+        between.assign(betweenLayers, vector<SqrtTreeItem>((1 << lg) + bSz));
+        build(0, 0, n, 0);
+    }
+};
+// NUMBER THEORY ..
+// mod inverse preprocess in O(n)
+  inv[1] = 1;
+  for (int i = 2; i <= n; ++i) {
+      inv[i] = (mod - mod / i) * inv[mod % i] % mod;
+  } 
+  
+using u64 = uint64_t;
+using u128 = __uint128_t;
+
+bool check_composite(u64 n, u64 a, u64 d, int s) {
+    u64 x = binpower(a, d, n);
+    if (x == 1 || x == n - 1)
+        return false;
+    for (int r = 1; r < s; r++) {
+        x = (u128)x * x % n;
+        if (x == n - 1)
+            return false;
+    }
+    return true;
+}
+
+//probabilistic , also check for divisibility by primes < 100 88% of success
+bool MillerRabin(u64 n, int iter=5) { // returns true if n is probably prime, else returns false.
+    if (n < 4)
+        return n == 2 || n == 3;
+
+    int s = 0;
+    u64 d = n - 1;
+    while ((d & 1) == 0) {
+        d >>= 1;
+        s++;
+    }
+
+    for (int i = 0; i < iter; i++) {
+        int a = 2 + rand() % (n - 3); // use rng()
+        if (check_composite(n, a, d, s))
+            return false;
+    }
+    return true;
+}
+// Better miller rabin ,and Pollard rho:
+
+using u64 = uint64_t;
+using u128 = __uint128_t;
+// 1) Fast inline GCD (no pair allocations)
+static inline u64 gcd64(u64 a, u64 b) {
+    while (b) {
+        u64 t = b;
+        b = a % b;
+        a = t;
+    }
+    return a;
+}
+
+// 2) Fast modular multiply for up to 64‑bit moduli
+static inline u64 modmul(u64 a, u64 b, u64 m) {
+    return (u128)a * b % m;
+}
+
+// 3) Fast modular exponentiation
+static inline u64 modpow(u64 a, u64 e, u64 m) {
+    u64 r = 1;
+    while (e) {
+        if (e & 1) r = modmul(r, a, m);
+        a = modmul(a, a, m);
+        e >>= 1;
+    }
+    return r;
+}
+
+//――――――――――――――――――――――――――――――
+
+// 5) Pollard’s Rho with fast RNG and inline GCD
+static mt19937_64 rng(chrono::steady_clock::now().time_since_epoch().count());
+
+// 4) Miller–Rabin (deterministic for 64‑bit)
+bool isPrime(u64 n) {
+    if (n < 2)                 return false;
+    for (u64 p : {2,3,5,7,11,13,17,19,23,29,31,37})
+        if (n % p == 0)        return n == p;
+
+    // write n-1 = d * 2^s
+    int s = __builtin_ctzll(n-1); //warning for __int128 , ask 7emdan about it!
+    u64 d = (n-1) >> s;
+    // those bases fits for < 24 digits
+    // {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41}
+    // 7 bases suffice for 64‑bit determinism
+    for (u64 a : {2ULL, 325ULL, 9375ULL, 28178ULL,
+                  450775ULL, 9780504ULL, 1795265022ULL}) {
+        if (a % n == 0) break;
+        u64 x = modpow(a, d, n);
+        if (x == 1 || x == n-1) continue;
+        bool comp = true;
+        for (int r = 1; r < s; ++r) {
+            x = modmul(x, x, n);
+            if (x == n-1) { comp = false; break; }
+        }
+        if (comp) return false;
+    }
+    return true;
+}
+
+//――――――――――――――――――――――――――――――
+u64 pollard_rho(u64 n) {
+    if (n % 2 == 0) return 2;
+    u64 c = (rng() % (n-1)) + 1;
+    u64 x = rng() % n;
+    u64 y = x, d = 1;
+
+    auto f = [&](u64 v){ return (modmul(v, v, n) + c) % n; };
+    while (d == 1) {
+        x = f(x);
+        y = f(f(y));
+        d = gcd64(x > y ? x-y : y-x, n);
+    }
+    return (d == n) ? pollard_rho(n) : d;
+}
+
+//――――――――――――――――――――――――――――――
+// 6) Full factorization
+void factor(u64 n, map<u64,int> &out) {
+    // strip small primes first
+    for (u64 p : {2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73,79,83,89,97}) {
+        while (n % p == 0) {
+            out[p]++;
+            n /= p;
+        }
+    }
+    if (n == 1) return;
+    if (isPrime(n)) {
+        out[n]++;
+    } else {
+        u64 d = pollard_rho(n);
+        factor(d, out);
+        factor(n/d, out);
+    }
+}
+
+// Spiral walk !! naive i know : ===
+int dr8[8][4] = {
+  {0, 1, 0, -1},   // start at (0,0), go R D L U  (CW)
+  {1, 0, -1, 0},   // start at (0,0), go D R U L  (CCW)
+  {0, -1, 0, 1},   // start at (0,n-1), go L D R U
+  {1, 0, -1, 0},   // start at (0,n-1), go D L U R
+  {0, -1, 0, 1},   // start at (n-1,n-1), go L U R D
+  {-1, 0, 1, 0},   // start at (n-1,n-1), go U L D R
+  {0, 1, 0, -1},   // start at (n-1,0), go R U L D
+  {-1, 0, 1, 0}    // start at (n-1,0), go U R D L
+};
+pair<int,int> start8[8] = {
+  {0,0}, {0,0},
+  {0,0}, {0,0},
+  {0,0}, {0,0},
+  {0,0}, {0,0}
+};
+
+// BIG INT
+struct BigInteger {
+    // base 10^9 per block
+    static const uint32_t BASE = 1000000000;
+    vector<uint32_t> a;  // least-significant block first
+
+    // Default constructor = 0
+    // Time: O(1)
+    BigInteger() { }
+
+    // Construct from decimal string
+    // Splits s into O(L/9) blocks, so O(L) time overall, where L = s.length()
+    BigInteger(const string &s) {
+        int len = s.size();
+        for (int i = len; i > 0; i -= 9) {
+            int l = max(0, i - 9);
+            int block = stoi(s.substr(l, i - l)); // substring and parse
+            a.push_back(block);
+        }
+        trim();  // O(#blocks)
+    }
+
+    // Remove leading zeros
+    // Time: O(#blocks) = O(L)
+    void trim() {
+        while (!a.empty() && a.back() == 0) a.pop_back();
+    }
+
+    bool isZero() const {
+        return a.empty();  // O(1)
+    }
+
+    // Compare absolute values
+    // Time: O(#blocks) = O(L)
+    int compare(const BigInteger &v) const {
+        if (a.size() != v.a.size())
+            return a.size() < v.a.size() ? -1 : 1;
+        for (int i = (int)a.size() - 1; i >= 0; --i)
+            if (a[i] != v.a[i])
+                return a[i] < v.a[i] ? -1 : 1;
+        return 0;
+    }
+
+    // Addition
+    // Time: O(max(#blocks_x, #blocks_y)) = O(L)
+    static BigInteger add(const BigInteger &x, const BigInteger &y) {
+        BigInteger res;
+        uint64_t carry = 0;
+        size_t n = max(x.a.size(), y.a.size());
+        res.a.resize(n);
+        for (size_t i = 0; i < n; ++i) {
+            uint64_t sum = carry;
+            if (i < x.a.size()) sum += x.a[i];
+            if (i < y.a.size()) sum += y.a[i];
+            carry = sum >= BASE;
+            if (carry) sum -= BASE;
+            res.a[i] = (uint32_t)sum;
+        }
+        if (carry) res.a.push_back((uint32_t)carry);
+        return res;
+    }
+
+    // Subtraction (assumes x >= y)
+    // Time: O(#blocks_x) = O(L)
+    static BigInteger sub(const BigInteger &x, const BigInteger &y) {
+        BigInteger res;
+        int64_t carry = 0;
+        res.a.resize(x.a.size());
+        for (size_t i = 0; i < x.a.size(); ++i) {
+            int64_t diff = int64_t(x.a[i]) - carry - (i < y.a.size() ? y.a[i] : 0);
+            carry = diff < 0;
+            if (carry) diff += BASE;
+            res.a[i] = (uint32_t)diff;
+        }
+        res.trim();  // O(#blocks)
+        return res;
+    }
+
+    // Division and modulo by int (0 < v < BASE)
+    // Returns pair<quotient, remainder>
+    // Time: O(#blocks) = O(L)
+    pair<BigInteger, uint32_t> divMod(uint32_t v) const {
+        BigInteger res;
+        res.a.resize(a.size());
+        uint64_t rem = 0;
+        for (int i = (int)a.size() - 1; i >= 0; --i) {
+            uint64_t cur = a[i] + rem * BASE;
+            res.a[i] = uint32_t(cur / v);
+            rem = cur % v;
+        }
+        res.trim();  // O(#blocks)
+        return {res, (uint32_t)rem};
+    }
+
+    // Convert to decimal string
+    // Time: O(#blocks) = O(L)
+    string toString() const {
+        if (isZero()) return "0";
+        string s = to_string(a.back());
+        char buf[10];
+        for (int i = (int)a.size() - 2; i >= 0; --i) {
+            snprintf(buf, sizeof(buf), "%09u", a[i]);
+            s += buf;
+        }
+        return s;
+    }
+
+    // Convert to binary string
+    // Repeatedly divides by 2: O(bit_length * #blocks) ~ O(L^2)
+    string toBinary() const {
+        if (isZero()) return "0";
+        BigInteger tmp = *this;
+        string bits;
+        while (!tmp.isZero()) {
+            auto dm = tmp.divMod(2); // O(#blocks)
+            bits.push_back(char('0' + dm.second));
+            tmp = dm.first;
+        }
+        reverse(bits.begin(), bits.end());
+        return bits;
+    }
+    // Multiplication by small int
+    static BigInteger mul(const BigInteger &x, uint32_t v) {
+        BigInteger res;
+        if (v == 0 || x.isZero()) return res;
+        res.a.assign(x.a.size(), 0);
+        uint64_t carry = 0;
+        for (size_t i = 0; i < x.a.size(); ++i) {
+            uint64_t cur = uint64_t(x.a[i]) * v + carry;
+            res.a[i] = uint32_t(cur % BASE);
+            carry = cur / BASE;
+        }
+        if (carry) res.a.push_back((uint32_t)carry);
+        return res;
+    }
+
+    // Multiplication
+    static BigInteger mul(const BigInteger &x, const BigInteger &y) {
+        BigInteger res;
+        if (x.isZero() || y.isZero()) return res;
+        res.a.assign(x.a.size() + y.a.size(), 0);
+        for (size_t i = 0; i < x.a.size(); ++i) {
+            uint64_t carry = 0;
+            for (size_t j = 0; j < y.a.size() || carry; ++j) {
+                uint64_t cur = res.a[i + j] +
+                               uint64_t(x.a[i]) * (j < y.a.size() ? y.a[j] : 0) +
+                               carry;
+                res.a[i + j] = uint32_t(cur % BASE);
+                carry = cur / BASE;
+            }
+        }
+        res.trim();
+        return res;
+    }
+};
+
+// Gauss:
+//O (min(n , m) * n * m )  
+// 2->inf sol , 1 -> sol  0 -> no sol
+// n_eqs , m vars
+struct Gauss {
+    int n, m;
+    vector<vector<double>> a;
+    vector<double> ans;
+    const double EPS = 1e-9;
+
+    Gauss(int _n, int _m) : n(_n), m(_m), a(_n, vector<double>(_m + 1)), ans(_m) {}
+
+    int solve() {
+        vector<int> where(m, -1);
+        for (int col = 0, row = 0; col < m && row < n; ++col) {
+            int sel = row;
+            for (int i = row; i < n; ++i)
+                if (abs(a[i][col]) > abs(a[sel][col]))
+                    sel = i;
+            if (abs(a[sel][col]) < EPS)
+                continue;
+            swap(a[sel], a[row]);
+            where[col] = row;
+
+            for (int i = 0; i < n; ++i) {
+                if (i != row) {
+                    double c = a[i][col] / a[row][col];
+                    for (int j = col; j <= m; ++j)
+                        a[i][j] -= a[row][j] * c;
+                }
+            }
+            ++row;
+        }
+
+        for (int i = 0; i < m; ++i)
+            if (where[i] != -1)
+                ans[i] = a[where[i]][m] / a[where[i]][i];
+            else
+                ans[i] = 0;
+
+        for (int i = 0; i < n; ++i) {
+            double sum = 0;
+            for (int j = 0; j < m; ++j)
+                sum += ans[j] * a[i][j];
+            if (abs(sum - a[i][m]) > EPS)
+                return 0;
+        }
+
+        for (int i = 0; i < m; ++i)
+            if (where[i] == -1)
+                return 2;
+        return 1;
+    }
+};
+//..
+struct GaussMod {
+    int n, m;
+    vector<vector<int>> a;
+    vector<int> ans;
+
+    GaussMod(int _n, int _m) : n(_n), m(_m), a(_n, vector<int>(_m + 1)), ans(_m) {}
+    int modinv(int x){
+      return binpow_m(x , mod - 2);
+    }
+    int solve() {
+        vector<int> where(m, -1);
+        for (int col = 0, row = 0; col < m && row < n; ++col) {
+            int sel = row;
+            for (int i = row; i < n; ++i)
+                if (a[i][col])
+                    sel = i;
+            if (a[sel][col] == 0)
+                continue;
+            swap(a[sel], a[row]);
+            where[col] = row;
+
+            int inv = modinv(a[row][col]);
+            for (int j = col; j <= m; ++j)
+                a[row][j] = (1LL * a[row][j] * inv) % mod;
+
+            for (int i = 0; i < n; ++i) {
+                if (i != row && a[i][col]) {
+                    int c = a[i][col];
+                    for (int j = col; j <= m; ++j)
+                        a[i][j] = (a[i][j] - 1LL * c * a[row][j] % mod + mod) % mod;
+                }
+            }
+            ++row;
+        }
+
+        for (int i = 0; i < m; ++i)
+            if (where[i] != -1)
+                ans[i] = a[where[i]][m];
+            else
+                ans[i] = 0;
+
+        for (int i = 0; i < n; ++i) {
+            int sum = 0;
+            for (int j = 0; j < m; ++j)
+                sum = (sum + 1LL * ans[j] * a[i][j]) % mod;
+            if (sum != a[i][m])
+                return 0; // no solution
+        }
+
+        for (int i = 0; i < m; ++i)
+            if (where[i] == -1)
+                return 2; // infinite solutions
+        return 1; // unique
+    }
+};
+// .......
+u128 int_sqrt (u128 x) {
+  u128 ans = 0;
+  for (u128 k = 1LL << 37; k != 0; k /= 2) {
+    if ((ans + k) * (ans + k) <= x) {
+      ans += k;
+    }
+  }
+  return ans;
+}
+//Centroid shit..
+const int MAXN = 100000;  // adjust as needed
+vector<int> adj[MAXN];    // adjacency list of the tree
+bool removed[MAXN];       // marker for removed centroids
+int sz[MAXN];             // subtree sizes
+int centroid_parent[MAXN]; // parent in the centroid tree
+
+// Compute subtree sizes of node u (excluding removed nodes)
+int get_size(int u, int p) {
+    sz[u] = 1;
+    for (int v : adj[u]) {
+        if (v != p && !removed[v]) {
+            sz[u] += get_size(v, u);
+        }
+    }
+    return sz[u];
+}
+
+// Find centroid of the subtree rooted at u (size = n)
+int get_centroid(int u, int p, int n) {
+    for (int v : adj[u]) {
+        if (v != p && !removed[v]) {
+            if (sz[v] * 2 > n)
+                return get_centroid(v, u, n);
+        }
+    }
+    return u;
+}
+
+// Decompose tree and build centroid tree
+// u: current root of subtree, p: parent in centroid tree
+void decompose(int u, int p) {
+    int n = get_size(u, -1);
+    int centroid = get_centroid(u, -1, n);
+    
+    // Mark centroid as removed
+    removed[centroid] = true;
+    
+    // Set parent of centroid in the centroid tree
+    centroid_parent[centroid] = (p == -1 ? centroid : p);
+    
+    // Recurse on subtrees
+    for (int v : adj[centroid]) {
+        if (!removed[v]) {
+            decompose(v, centroid);
+        }
+    }
+}
+// Minimum enclosing circle: 
+
+typedef double ld;
+struct P { ld x, y; };
+struct C { P c; ld r; };
+
+ld dist(const P &a, const P &b) {
+    ld dx = a.x - b.x, dy = a.y - b.y;
+    return sqrt(dx*dx + dy*dy);
+}
+
+bool in_circle(const C &c, const P &p) {
+    return dist(c.c, p) <= c.r + 1e-9;
+}
+
+C circle_from_2(const P &a, const P &b) {
+    P o{ (a.x + b.x)/2, (a.y + b.y)/2 };
+    return { o, dist(a,b)/2 };
+}
+
+C circle_from_3(const P &a, const P &b, const P &c) {
+    ld A = b.x - a.x, B = b.y - a.y;
+    ld Cc = c.x - a.x, D = c.y - a.y;
+    ld E = A*(a.x + b.x) + B*(a.y + b.y);
+    ld F = Cc*(a.x + c.x) + D*(a.y + c.y);
+    ld G = 2*(A*(c.y - b.y) - B*(c.x - b.x));
+    if (fabs(G) < 1e-9) return { {0,0}, -1 };
+    P o{ (D*E - B*F)/G, (A*F - Cc*E)/G };
+    return { o, dist(o, a) };
+}
+
+C mec(vector<P> &pts) {
+    random_device rd;
+    mt19937 rng(rd());
+    shuffle(pts.begin(), pts.end(), rng);
+    C c{ {0,0}, -1 };
+    int n = pts.size();
+    for (int i = 0; i < n; i++) {
+        if (c.r < 0 || !in_circle(c, pts[i])) {
+            c = { pts[i], 0 };
+            for (int j = 0; j < i; j++) {
+                if (!in_circle(c, pts[j])) {
+                    c = circle_from_2(pts[i], pts[j]);
+                    for (int k = 0; k < j; k++) {
+                        if (!in_circle(c, pts[k])) {
+                            c = circle_from_3(pts[i], pts[j], pts[k]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return c;
+}
+//Persistent segment tree
+
+typedef long long ll;
+const int MAXN = 100000;          // max array size
+const int MAXNODE = MAXN * 20;    // pool size: approx n * log(n) * versions
+
+struct Node {
+    ll sum;
+    Node *l, *r;
+    Node(ll _sum = 0, Node* _l = nullptr, Node* _r = nullptr) : sum(_sum), l(_l), r(_r) {}
+};
+
+Node pool[MAXNODE];
+int poolPtr = 0;
+
+// allocate and return a new node
+Node* newNode(ll sum = 0, Node* l = nullptr, Node* r = nullptr) {
+    pool[poolPtr] = Node(sum, l, r);
+    return &pool[poolPtr++];
+}
+
+// build a tree for range [L,R], initially zeros
+Node* build(int L, int R) {
+    Node* node = newNode();
+    if (L == R) return node;
+    int M = (L + R) >> 1;
+    node->l = build(L, M);
+    node->r = build(M+1, R);
+    return node;
+}
+
+// point update: at position pos add delta, return new root based on prev
+Node* update(Node* prev, int L, int R, int pos, ll delta) {
+    if (pos < L || pos > R) return prev;
+    Node* node = newNode(prev->sum, prev->l, prev->r);
+    if (L == R) {
+        node->sum += delta;
+        return node;
+    }
+    int M = (L + R) >> 1;
+    if (pos <= M) node->l = update(prev->l, L, M, pos, delta);
+    else           node->r = update(prev->r, M+1, R, pos, delta);
+    node->sum = node->l->sum + node->r->sum;
+    return node;
+}
+
+// query sum in [i,j] on version rooted at rt
+ll query(Node* rt, int L, int R, int i, int j) {
+    if (!rt || j < L || i > R) return 0;
+    if (i <= L && R <= j) return rt->sum;
+    int M = (L + R) >> 1;
+    return query(rt->l, L, M, i, j) + query(rt->r, M+1, R, i, j);
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int n, Q;
+    cin >> n >> Q;
+    vector<ll> a(n+1);
+    for (int i = 1; i <= n; i++) cin >> a[i];
+
+    vector<Node*> version(Q+1);
+    version[0] = build(1, n);
+    for (int i = 1; i <= n; i++)
+        version[0] = update(version[0], 1, n, i, a[i]);
+
+    int curVer = 0;
+    while (Q--) {
+        int type;
+        cin >> type;
+        if (type == 1) {
+            int idx; ll delta;
+            cin >> idx >> delta;
+            version[++curVer] = update(version[curVer-1], 1, n, idx, delta);
+        } else {
+            int v, l, r;
+            cin >> v >> l >> r;
+            cout << query(version[v], 1, n, l, r) << '\n';
+        }
+    }
+    return 0;
+}
+
+// overflow checks in runtime
+g++ -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined mano.cpp -o mano
+//Stress testing !!
+import random, subprocess, sys
+
+# random integer in [a,b]
+def rnd(a, b): return random.randint(a, b)
+
+# generate one test case; adapt this to your problem
+# here: first line n, second line n random integers
+
+def gen():
+    n = rnd(1, 10)
+    a = [rnd(1, 100) for _ in range(n)]
+    return f"{n}\n" + " ".join(map(str, a)) + "\n"
+
+# main stress loop: usage: python stress_test.py [T]
+def main():
+    T = int(sys.argv[1]) if len(sys.argv) > 1 else 100
+    for i in range(T):
+        tc = gen()
+        # get correct output via checker.exe
+        ans = subprocess.check_output(["./checker.exe"], input=tc, text=True)
+        # get solution output via solution.exe
+        out = subprocess.check_output(["./solution.exe"], input=tc, text=True)
+        if ans != out:
+            print(f"WA on test #{i+1}:\n{tc}Expected: {ans}Got: {out}")
+            sys.exit(1)
+    print("All tests passed!")
+
+if __name__ == "__main__":
+    main()
